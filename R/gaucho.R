@@ -17,12 +17,14 @@
 #' @param parthenogenesis           The number of best-fitness individuals allowed to survive each generation
 #' @param nroot                     Number of roots the phylogeny is expected to have.When nroot=0, a random integer between 1 and the number of clones is generated for each phylogeny
 #' @param contamination             Is the input contaminated?  If set to 1, an extra clone is created in which to place inferred contaminants
-#' @param check_validity            Unless set to false, eliminate any clones with no new mutations, disallow those clones. Increases computational overheads.
+#' @param check_validity            Unless set to false, eliminate any clones with no new mutations, disallow those clones. Increases computational overheads
+#' @param parallel                  Whether or not to use the parallel computing functionality of the GA package.  Identical to the "parallel" argument in \code{\link{ga}}.  
+#' TRUE will use all cores via \code{\link{detectCores}}, whereas an integer can be used to specify a number of cores
 #' @details The input data should be a data.frame containing proportions of cells that contain a feature.  There are a number of ways
 #' to create these data, including merging the balance of alleles and copy number of an SNV using the equation min(1,r*CN/(r+R)), where
 #' CN is the copy number, r is the number of non-reference reads and R is the number of reference reads.  For example, if a site
 #' were sequenced to a depth of 100x, with 25 non-reference reads and 75 reference reads and diploid copy number, the result would be
-#' min(1,25*2/(25+75)) = 0.5.  Therefore, 50\% of the cells in the sample contain the SNV.
+#' min(1,25*2/(25+75)) = 0.5.  Therefore, 50\% of the cells in the sample contain the SNV.  Using the parallel functionality is very strongly advised.
 #' Further details are available in the accompanying vignette.
 #' @return Returns an object of class ga \code{\link{ga-class}}.  Note that the number of clones and number of cases are 
 #' stored in the unused min and max slots of the output object.
@@ -51,13 +53,9 @@
 #' ## Output the solution and plots in the current working directory
 #' # gauchoReport(gaucho_simple_data,solution)
 
-
-
 gaucho<-function(observations, number_of_clones, pop_size=100, mutation_rate=0.8, iterations=1000,
-               stoppingCriteria=round(iterations/5), parthenogenesis=2,nroot=0, contamination=0, check_validity=TRUE) {
+               stoppingCriteria=round(iterations/5), parthenogenesis=2,nroot=0, contamination=0, check_validity=TRUE,parallel=FALSE) {
 
-  ## Load all libraries
-  
   ##############################
   ## Start internal functions ##
   ##############################
@@ -148,8 +146,6 @@ gaucho<-function(observations, number_of_clones, pop_size=100, mutation_rate=0.8
       proportion_matrix[rows,]<-proportion_matrix[rows,]/scale
     }
     
-    tot_score<-0
-    
     # For each mutation, obtain the clones it appears in from the phylogeny matrix
     # Calculate the expected frequency in each case by summing clone frequencies for each mutation in each case
     prediction_matrix<-matrix(ncol=number_of_cases, nrow=number_of_mutations)
@@ -169,11 +165,29 @@ gaucho<-function(observations, number_of_clones, pop_size=100, mutation_rate=0.8
     
     # calculate the deviance for each case/mutation from the observations
     # return -1 times the total deviance for all mutations
+    tot_score<-0
     vals<-prediction_matrix-observation_matrix ## 11% of total load
-    for (plink in 1:nrow(vals)) {
-      tot_score<-tot_score+sum(abs(vals[plink,])) ## 62% of total load
-    }
     
+    ## There are a number of options for calculating this value; a simple apply function is the fastest:
+    
+    ## Standard loop
+    #for (plink in 1:nrow(vals)) {
+    #  tot_score<-tot_score+sum(abs(vals[plink,])) ## 62% of total load
+    #}    
+    
+    ## Parallel loop
+    #tot_score = foreach(plink=1:nrow(vals), .combine="c", .inorder=FALSE, .multicombine=TRUE) %dopar% {
+    #  sum(abs(vals[plink,])) ## 62% of total load
+    #}
+    #tot_score=sum(tot_score)
+        
+    ## Vectorised function (margin=2 is slightly faster) ## FASTEST
+    tot_score=sum(apply(vals,2,abs))
+    
+    ## Parallel apply
+    #tot_score=sum(unlist(clusterApply(cl, vals, abs))) # ok
+    #tot_score=sum(parApply(cl,vals,2,abs)) # ok
+        
     return(-1*tot_score)
     
   }
@@ -327,7 +341,8 @@ gaucho<-function(observations, number_of_clones, pop_size=100, mutation_rate=0.8
           pmutation=mutation_rate,
           maxiter=iterations,
           elitism = parthenogenesis,
-          run=stoppingCriteria
+          run=stoppingCriteria,
+          parallel=parallel
   )
   ## Add annotation to the object
   #goo@names=as.character(observations[,1])
@@ -338,6 +353,7 @@ gaucho<-function(observations, number_of_clones, pop_size=100, mutation_rate=0.8
   ## Add number of cases (e.g. timepoints) to max slot.  Note that this is an incorrect use of the slot
   goo@max= number_of_cases
 
+  ## Return the value
   return(goo)
 
   #######################

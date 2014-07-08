@@ -1,2 +1,9 @@
+08 July 2014
+Version 1.1
+- Parallel support added
+- Some loops vectorized
+- Diversity indices added to gauchoReport()
+This version is up to 10x faster than version 1.0.
+
 08 April 2014
 First version of GAUCHO released.
