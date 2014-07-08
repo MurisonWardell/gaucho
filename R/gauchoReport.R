@@ -5,7 +5,7 @@
 #' 
 #' @param gauchoInput             Raw data analysed by gaucho() 
 #' @param gauchoOutput            Object of class ga produced by gaucho()
-#' @param outType               Type of output desired - must be one of the following: "complete","fitness","heatmap","phylogeny","proportion"
+#' @param outType               Type of output desired - must be one of the following: "complete","fitness","heatmap","phylogeny","proportion","diversity"
 #' @param yRange                Y-axis range when plotting fitness of individuals.  Default is c(-250,0)
 #' @param output_file_prefix    Optional prefix for all output files
 #' @details This method reports data for the fittest individual; in the event of there being multiple individuals with identical
@@ -13,7 +13,8 @@
 #' All options except for the default "complete" value result in plotting the desired output to the current R session.
 #' When outType=="complete", the following output is created for each individual:  the full length string, the phylogeny
 #' matrix, the proportion matrix, the presence matrix, a heatmap of the raw data with the assigned clones as coloured bars
-#' at the side, a stacked barplot showing the proportion of each clone at each timepoint and a plot showing the phylogenetic
+#' at the side, a stacked barplot showing the proportion of each clone at each timepoint, four diversity indices at each timepoint (Shannon 
+#' index, Simpson index, Gini-Simpson index, Berger-Parker index) and a plot showing the phylogenetic
 #' relationship between the clones.  Note that the colours of the clones are consistent across all plots and that the contamination
 #' clone (if present) is always the last clone.  Also produced is a plot illustrating the change in fitness as the generations evolved.
 #' @return Nothing is returned.
@@ -49,8 +50,8 @@ gauchoReport<-function(gauchoInput,gauchoOutput,outType="complete",yRange=c(-250
   #################
   
   ## Check that the outType argument is correctly specified
-  if(!(outType %in% c("complete","fitness","heatmap","phylogeny","proportion"))){
-    stop("outType incorrect: must be one of the following: \"complete\",\"fitness\",\"heatmap\",\"phylogeny\",\"proportion\"")
+  if(!(outType %in% c("complete","fitness","heatmap","phylogeny","proportion","diversity"))){
+    stop("outType incorrect: must be one of the following: \"complete\",\"fitness\",\"heatmap\",\"phylogeny\",\"proportion\",\"diversity\"")
   }
   
   #####################
@@ -81,7 +82,7 @@ gauchoReport<-function(gauchoInput,gauchoOutput,outType="complete",yRange=c(-250
     contamination=1
   }
     
-  ## Now we now the contamination status, we can calculate the pseudo_number_of_clones
+  ## Now we have the contamination status, we can calculate the pseudo_number_of_clones
   if (contamination == 1) {
     pseudo_number_of_clones<-number_of_clones+1
   } else {
@@ -185,6 +186,38 @@ gauchoReport<-function(gauchoInput,gauchoOutput,outType="complete",yRange=c(-250
       layout(1) # Restore layout
       if(outType=="complete"){ dev.off() }
     }
+    
+    ## Produce proportion stacked barplot
+    if(outType %in% c("complete","diversity")){
+      message("Outputting diversity information")
+      rownames(proportion_matrix)=colnames(observation_matrix)
+            
+      diversityIndices<-function(clone_proportions) {
+        # Calculate and return 4 diversity Indices
+        # Shannon index - Entropy/Uncertainty in population
+        # Simpson index - Probability that 2 randomly selected individuals are the same type
+        # Gini-Simpson index - Probability that 2 randomly selected individuals are different types
+        # Berger-Parker index - Probability of selecting major clone
+        # Takes a vector of clone proportions as input
+        
+        ## Shannon diversity fails when clones are at 0 proportion because log(0)=-Inf.  We therefore write an exception
+        nozeroes=clone_proportions[clone_proportions!=0]
+        diversity<-vector(length=4)
+        names(diversity)<-c("Shannon_index", "Simpson_index", "Gini-Simpson_index", "Berger-Parker_index")
+        diversity[1]<--1*(sum(nozeroes*log(nozeroes)))
+        diversity[2]<-sum(clone_proportions^2)
+        diversity[3]<-1-diversity[2]
+        diversity[4]<-max(clone_proportions)
+        return(diversity)  
+      }
+      
+      diversity=t(apply(proportion_matrix,1,diversityIndices))
+      print(diversity)
+      if(outType=="complete"){
+        write.table(diversity,paste0(output_file_prefix,number_of_clones,"clones.diversity.indices.solution",number_of_answers,"of",top_number,".txt"),sep="\t", row.names=TRUE,col.names=TRUE)
+      }
+    }
+    
     
     ## Produce phylogeny plot
     if(outType %in% c("complete","phylogeny")){

@@ -47,7 +47,7 @@
 }
 \maketitle
 
-This vignette serves as an introduction to the R package gaucho.  It covers the basic use cases and usage of the package, explaining the input and output and contains several worked examples.  If you use this package, please cite it\cite{gauchoR} and/or a recent paper where it was used\cite{melchor}.  A BibTeX entry for LaTeX users is:
+This vignette serves as an introduction to the R package gaucho.  It covers the basic use cases and usage of the package, explaining the input and output and contains several worked examples, including how to massively speed up computation using parallelism.  If you use this package, please cite it\cite{gauchoR} and/or a recent paper where it was used\cite{melchor}.  A BibTeX entry for LaTeX users is:
 
 \begin{verbatim}
 @Manual{gauchoR,
@@ -69,7 +69,7 @@ library(gaucho)
 
 \noindent The latest development version can be cloned from GitHub but must be built from source:\\
 
-\noindent https://github.com/MurisonWardell/gaucho
+\noindent \url{https://github.com/MurisonWardell/gaucho}
 
 \paragraph{Dependencies:} Please note that gaucho depends on the following packages which are either available from CRAN or part of base R, but these should be automatically downloaded when Gaucho is installed using biocLite():
 GA\cite{scrucca}, compiler\cite{baseR}, heatmap.plus\cite{heatmapplusR}, png\cite{pngR}, as well as graph\cite{graphR}.
@@ -161,6 +161,7 @@ The \texttt{gaucho()} function returns an object of class \texttt{ga}.  Although
    presence or absence of each SNV in each clone
    \item text file: {\color{icrred}k}clones.proportions.solution.{\color{icrred}i}of{\color{icrred}n}.txt: the proportion of each 
    clone that composes each sample
+   \item text file: {\color{icrred}k}clones.diversity.indices.solution.{\color{icrred}i}of{\color{icrred}n}.txt: four different diversity indices calculated for each sample.  The Shannon, Simpson, Gini-Simpson and Berger-Parker indices
 \end{enumerate}
 
 Note that in the event of multiple solutions scoring equally well, files for up to the top five solutions will be produced.
@@ -170,6 +171,8 @@ Note that in the event of multiple solutions scoring equally well, files for up 
 gauchoReport(gaucho_input_dataframe,gaucho_output_object)
 @
 
+\subsubsection{Diversity indices}
+Four diversity indices are calculated for each sample.  These are quantitative measures of how many clones are present and their relative proportions.  Wikipedia has a good primer on the subject: \url{http://en.wikipedia.org/wiki/Diversity_index}
 
 \section{Worked examples}
 A number of sample data sets are distributed with the gaucho package and are discussed in order of increasing complexity.
@@ -409,7 +412,7 @@ The final included data set and is important for several reasons:
 \begin{enumerate}
    \item It's experimental, biological data from a published source \cite{pmid23873039}
    \item The publication suggests an optimum ("correct") solution
-   \item The input data is contaminated, so we can test the \texttt{contamination} parameter of \texttt{gaucho()} 
+   \item The input data is contaminated, so we can test the \texttt{contamination} argument of \texttt{gaucho()} 
    \item The data is functionally identical to the sort of mutation data we see in tumour/normal paired sequencing experiments
 \end{enumerate}
 
@@ -472,6 +475,61 @@ different solution with 7 clones that scored even higher.  Therefore, the output
 \subsection{Advanced gaucho usage and best practices}
 We have covered the basic usage of gaucho using small data sets with simple phylogenies, larger data sets with complex phylogenies and finally we recapitulated the results found through other methods in a published data set.  Here we explain more complex use of gaucho and provide sample code for running your own analyses.
 
+\subsubsection{gaucho and parallelism}
+Taking advantage of the parallelism built into gaucho is essential for speed.  This has mainly been achieved by utilising code already implemented in the GA package.  All that is required of the user is ensuring that the correct packages are installed (if they are not, warnings will be issued and you will be informed which packages to install) and to add the \texttt{parralel}  argument to any \texttt{gaucho()} commands.  Parallel support is platform independant and should work on Windows, Linux and OSX.
+
+<<parallel, eval=FALSE>>=
+## Load libraries; include the rbenchmark() library to test speed
+library(gaucho)
+library(rbenchmark)
+
+## Load synthetic data set
+gaucho_synth_data = read.table(file.path(system.file("extdata",package="gaucho"),"gaucho_synth_data.txt"),header=TRUE,row.names=1)
+
+## Benchmark gaucho using default settings and increasing numbers of cores (run on a server with 2 Intel Xeon X5650 CPUs)
+## 500 iterations isn't enough to find a good solution, we just want to see how fast it's running
+within(benchmark(Linear=gaucho(gaucho_synth_data,number_of_clones=6,iterations=500,parallel=FALSE),
+                 Par2=gaucho(gaucho_synth_data,number_of_clones=6,iterations=500,parallel=2),
+                 Par4=gaucho(gaucho_synth_data,number_of_clones=6,iterations=500,parallel=4),
+                 Par8=gaucho(gaucho_synth_data,number_of_clones=6,iterations=500,parallel=8),
+                 Par16=gaucho(gaucho_synth_data,number_of_clones=6,iterations=500,parallel=16),
+                 Par20=gaucho(gaucho_synth_data,number_of_clones=6,iterations=500,parallel=20),
+                 replications=5,
+                 columns=c('test', 'replications', 'elapsed'),
+                 order=c('test', 'replications')),
+       { average = elapsed/replications })
+
+@
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlcom{## Output from the benchmark above:}
+
+    test replications        elapsed      average
+1 Linear            5       1398.390      279.6780
+2   Par2            5       1109.591      221.9182
+3   Par4            5        731.923      146.3846
+4   Par8            5        562.404      112.4808
+5  Par16            5        504.422      100.8844
+6  Par20            5        524.223      104.8446
+
+\end{alltt}
+\end{kframe}
+\end{knitrout}
+
+% Code used to generate the figure
+% x=c(1,2,4,8,16,20)
+% y=c(279.6780,221.9182,146.3846,112.4808,100.8844,104.8446)
+% plot(x,y,type="l",ylab="Time (seconds)",xlab="Number of cores")
+% points(x,y,pch=15)
+
+\begin{figure}[H]
+   \centering
+       \includegraphics[width=\textwidth]{parallel_cores}
+       \caption{Time decreases as number of cores increases, up to a point.}
+\end{figure}
+
+Parallelising a problem is not as simple as throwing more cores at it.  Time will be wasted by breaking up the problem and communicating with cores if too many cores are used.  This depends on the complexity of the problem; in this example, the synthetic data used contains four samples and 90 SNVs; a larger and more complex problem (i.e. more samples and/or more SNVs) may benefit from more cores.  It seems clear that 2-8 cores will lead to significant speed increases, which is particularly relevant to users of desktop hardware.  If in doubt, set \texttt{parralel=TRUE} which will use all the available cores on your machine.
 
 \subsubsection{Finding an initial estimate of the number of clones}
 All gaucho requires to run is some input and the number of clones.  How can we supply the number of clones to gaucho without knowing it first?
